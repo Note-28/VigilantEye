@@ -54,7 +54,7 @@ Reptile++ is an advanced meta-learning algorithm that enhances the model's abili
 - If the model is missing, the application creates a basic, untrained Res-CNN model (see `create_basic_model` in `packet_processing.py`). For accurate detection, use a trained model.
 - To use a different path, update `MODEL_PATH` in `packet_processing.py`:
   ```python
-  MODEL_PATH = "models/rescnn_reptile_plus_plus_best_model.keras"
+  MODEL_PATH = "model/rescnn_reptile_plus_plus_best_model.keras"
   ```
 
 ### Training Notes
