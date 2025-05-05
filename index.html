@@ -1,0 +1,1089 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Security Dashboard</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #1e40af;
+            --secondary-color: #3b82f6;
+            --success-color: #059669;
+            --danger-color: #dc2626;
+            --warning-color: #d97706;
+        }
+        
+        body {
+            background-color: #f3f4f6;
+            font-family: 'Inter', sans-serif;
+        }
+        
+        .dashboard-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 1rem;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            transition: all 0.3s ease;
+        }
+        
+        .card:hover {
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        
+        .log-container {
+            height: 400px;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: var(--secondary-color) #f3f4f6;
+            position: relative;
+        }
+        
+        .table-container {
+            position: relative;
+            width: 100%;
+        }
+        
+        .table-header {
+            position: sticky;
+            top: 0;
+            background-color: #f8fafc;
+            z-index: 10;
+            border-bottom: 2px solid #e5e7eb;
+        }
+        
+        .table-header th {
+            padding: 1rem;
+            text-align: left;
+            font-weight: 600;
+            color: #4b5563;
+            white-space: nowrap;
+        }
+        
+        .packet-row td {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        
+        .blocked-ips-container {
+            max-height: 200px;
+            overflow-y: auto;
+            margin-top: 1rem;
+        }
+        
+        .blocked-ip-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 1rem;
+            margin-bottom: 0.5rem;
+            background-color: #fee2e2;
+            border-radius: 0.375rem;
+            transition: background-color 0.2s ease;
+        }
+        
+        .blocked-ip-item:hover {
+            background-color: #fecaca;
+        }
+        
+        .blocked-ip-item:last-child {
+            margin-bottom: 0;
+        }
+        
+        .unblock-btn {
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            transition: all 0.2s ease;
+        }
+        
+        .unblock-btn:hover {
+            background-color: rgba(0, 0, 0, 0.05);
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .modal.show {
+            opacity: 1;
+        }
+        
+        .modal-content {
+            background-color: white;
+            margin: 5% auto;
+            padding: 2rem;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 800px;
+            max-height: 90vh;
+            overflow-y: auto;
+            transform: translateY(-20px);
+            opacity: 0;
+            transition: all 0.3s ease;
+        }
+        
+        .modal.show .modal-content {
+            transform: translateY(0);
+            opacity: 1;
+        }
+        
+        .close {
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: color 0.2s ease;
+        }
+        
+        .close:hover {
+            color: var(--danger-color);
+        }
+        
+        .detail-row {
+            display: flex;
+            border-bottom: 1px solid #e5e7eb;
+            padding: 1rem 0;
+        }
+        
+        .detail-label {
+            font-weight: 600;
+            width: 200px;
+            color: #4b5563;
+        }
+        
+        .detail-value {
+            flex: 1;
+            color: #1f2937;
+        }
+        
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+        
+        .status-badge.running {
+            background-color: #dcfce7;
+            color: var(--success-color);
+        }
+        
+        .status-badge.stopped {
+            background-color: #fee2e2;
+            color: var(--danger-color);
+        }
+        
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.5rem 1rem;
+            border-radius: 0.375rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .btn-primary {
+            background-color: var(--primary-color);
+            color: white;
+        }
+        
+        .btn-primary:hover:not(:disabled) {
+            background-color: var(--secondary-color);
+        }
+        
+        .btn-danger {
+            background-color: var(--danger-color);
+            color: white;
+        }
+        
+        .btn-danger:hover:not(:disabled) {
+            background-color: #b91c1c;
+        }
+        
+        .animate-pulse {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: .5;
+            }
+        }
+        
+        .fade-in {
+            animation: fadeIn 0.3s ease-in;
+        }
+        
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .btn-secondary {
+            background-color: #4b5563;
+            color: white;
+        }
+        
+        .btn-secondary:hover:not(:disabled) {
+            background-color: #374151;
+        }
+    </style>
+</head>
+<body>
+    <nav class="bg-gradient-to-r from-blue-900 to-blue-700 text-white p-4 shadow-lg">
+        <div class="container mx-auto flex justify-between items-center">
+            <div class="flex items-center space-x-4">
+                <i class="fas fa-shield-alt text-2xl"></i>
+                <h1 class="text-2xl font-bold">Network Security Dashboard</h1>
+            </div>
+            <div class="flex items-center space-x-2">
+                <i id="status-icon" class="fas fa-circle text-red-500"></i>
+                <span id="status-text" class="font-medium">Offline</span>
+            </div>
+        </div>
+    </nav>
+    
+    <div class="dashboard-container">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <div class="card p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-xl font-bold text-gray-800">
+                        <i class="fas fa-network-wired mr-2"></i>Traffic Analysis Control
+                    </h2>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-gray-700 mb-2" for="interface">Network Interface:</label>
+                    <select id="interface" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="">Select an interface</option>
+                    </select>
+                </div>
+                <div class="flex space-x-4">
+                    <button id="start-btn" class="btn btn-primary">
+                        <i class="fas fa-play mr-2"></i>Start Analysis
+                    </button>
+                    <button id="stop-btn" class="btn btn-danger" disabled>
+                        <i class="fas fa-stop mr-2"></i>Stop Analysis
+                    </button>
+                </div>
+            </div>
+            
+            <div class="card p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-xl font-bold text-gray-800">
+                        <i class="fas fa-ban mr-2"></i>IP Management
+                    </h2>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-gray-700 mb-2" for="ip-address">IP Address:</label>
+                    <input type="text" id="ip-address" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="192.168.1.1">
+                </div>
+                <div class="flex space-x-4">
+                    <button id="block-btn" class="btn btn-danger">
+                        <i class="fas fa-ban mr-2"></i>Block IP
+                    </button>
+                    <button id="unblock-btn" class="btn btn-primary">
+                        <i class="fas fa-unlock mr-2"></i>Unblock IP
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+            <div class="card p-6">
+                <h2 class="text-xl font-bold text-gray-800 mb-4">
+                    <i class="fas fa-chart-line mr-2"></i>System Status
+                </h2>
+                <div class="space-y-4">
+                    <div class="flex justify-between items-center">
+                        <span class="text-gray-600">Snort Service:</span>
+                        <span id="snort-status" class="status-badge stopped">Stopped</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-gray-600">Active IP Blocks:</span>
+                        <span id="block-count" class="text-lg font-semibold text-blue-600">0</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-gray-600">Analysis Status:</span>
+                        <span id="analysis-status" class="status-badge stopped">Stopped</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card p-6 md:col-span-2">
+                <h2 class="text-xl font-bold text-gray-800 mb-4">
+                    <i class="fas fa-shield-alt mr-2"></i>Blocked IPs
+                </h2>
+                <div class="blocked-ips-container">
+                    <ul id="blocked-ips-list" class="space-y-2">
+                        <li class="text-gray-400 italic">No IPs blocked</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold text-gray-800">
+                    <i class="fas fa-stream mr-2"></i>Live Traffic Analysis
+                </h2>
+                <div class="flex space-x-4">
+                    <div class="relative">
+                        <input type="text" id="ip-filter" class="w-64 p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="Filter by IP...">
+                        <button id="clear-filter" class="absolute right-2 top-2 text-gray-400 hover:text-gray-600">
+                            <i class="fas fa digitalsignage.com.au
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <button id="clear-traffic-btn" class="btn btn-secondary">
+                        <i class="fas fa-eraser mr-2"></i>Clear Traffic
+                    </button>
+                </div>
+            </div>
+            <div class="table-container">
+                <div class="log-container">
+                    <table class="min-w-full">
+                        <thead class="table-header">
+                            <tr>
+                                <th>Time</th>
+                                <th>Source IP</th>
+                                <th>Destination IP</th>
+                                <th>Protocol</th>
+                                <th>Ports</th>
+                                <th>Size</th>
+                                <th>Action</th>
+                                <th>Prediction</th>
+                            </tr>
+                        </thead>
+                        <tbody id="traffic-logs">
+                            <tr>
+                                <td colspan="8" class="px-4 py-8 text-center text-gray-400 italic">No traffic data available</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Packet Details Modal -->
+        <div id="packetModal" class="modal">
+            <div class="modal-content">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-bold text-gray-800">
+                        <i class="fas fa-info-circle mr-2"></i>Packet Details
+                    </h2>
+                    <span class="close">×</span>
+                </div>
+                <div id="packetDetails" class="space-y-4">
+                    <!-- Details will be inserted here -->
+                </div>
+            </div>
+        </div>
+        
+        <!-- Blocked IP Details Modal -->
+        <div id="blockedIPModal" class="modal">
+            <div class="modal-content">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-bold text-gray-800">
+                        <i class="fas fa-ban mr-2"></i>Blocked IP Details
+                    </h2>
+                    <span class="close-ip-modal">×</span>
+                </div>
+                <div id="blockedIPDetails" class="space-y-4">
+                    <!-- Details will be inserted here -->
+                </div>
+            </div>
+        </div>
+        
+        <script>
+            let socket;
+            let isConnected = false;
+            let lastUpdateTime = 0;
+            let isAnalysisRunning = false;
+            let currentBlockedIPs = new Set();
+            let currentIPFilter = "";  // Add this line for IP filter state
+
+            function updateBlockedIPs(blockedIPs) {
+                const blockedIPsList = document.getElementById("blocked-ips-list");
+                const newBlockedIPs = new Set(blockedIPs);
+                
+                // If nothing has changed, don't update the display
+                if (setsAreEqual(currentBlockedIPs, newBlockedIPs)) {
+                    return;
+                }
+                
+                // Update our current state
+                currentBlockedIPs = newBlockedIPs;
+                
+                // Clear the list
+                blockedIPsList.innerHTML = "";
+                
+                if (blockedIPs.length === 0) {
+                    blockedIPsList.innerHTML = "<li class='text-gray-400 italic'>No IPs blocked</li>";
+                } else {
+                    blockedIPs.forEach(ip => {
+                        // Get traffic history for this IP
+                        const ipTraffic = Array.from(document.querySelectorAll('.packet-row'))
+                            .filter(row => row.children[1].textContent === ip || row.children[2].textContent === ip);
+                        
+                        // Find the first packet that triggered the block
+                        const blockedPacket = ipTraffic.find(row => row.children[6].textContent === 'blocked');
+                        const blockTime = blockedPacket ? blockedPacket.children[0].textContent : 'Unknown';
+                        
+                        const li = document.createElement("li");
+                        li.className = "blocked-ip-item";
+                        li.innerHTML = `
+                            <div class="flex items-center flex-grow cursor-pointer" onclick="showBlockedIPDetails('${ip}')">
+                                <i class="fas fa-ban text-red-500 mr-2"></i>
+                                <div class="flex flex-col">
+                                    <span class="text-red-700 font-medium">${ip}</span>
+                                    <span class="text-xs text-gray-500">Blocked at: ${blockTime}</span>
+                                </div>
+                            </div>
+                            <button class="unblock-btn text-blue-600 hover:text-blue-800" data-ip="${ip}">
+                                <i class="fas fa-unlock mr-1"></i>Unblock
+                            </button>
+                        `;
+                        blockedIPsList.appendChild(li);
+                    });
+                    
+                    document.querySelectorAll('.unblock-btn').forEach(btn => {
+                        btn.addEventListener('click', function() {
+                            const ip = this.getAttribute('data-ip');
+                            if (isConnected) {
+                                socket.send(JSON.stringify({
+                                    action: "unblock_ip",
+                                    ip: ip
+                                }));
+                            }
+                        });
+                    });
+                }
+            }
+
+            function setsAreEqual(a, b) {
+                if (a.size !== b.size) return false;
+                for (let item of a) if (!b.has(item)) return false;
+                return true;
+            }
+
+            function updateSystemStatus(status) {
+                const snortStatus = document.getElementById("snort-status");
+                const blockCount = document.getElementById("block-count");
+                const analysisStatus = document.getElementById("analysis-status");
+                const statusIcon = document.getElementById("status-icon");
+                const statusText = document.getElementById("status-text");
+                
+                snortStatus.textContent = status.snort_status.charAt(0).toUpperCase() + status.snort_status.slice(1);
+                snortStatus.className = `status-badge ${status.snort_status === 'running' ? 'running' : 'stopped'}`;
+                
+                // Only update block count if it has changed
+                if (blockCount.textContent !== status.active_blocks.toString()) {
+                    blockCount.textContent = status.active_blocks;
+                }
+                
+                analysisStatus.textContent = status.analysis_running ? "Running" : "Stopped";
+                analysisStatus.className = `status-badge ${status.analysis_running ? 'running' : 'stopped'}`;
+                
+                statusIcon.className = `fas fa-circle ${isConnected ? 'text-green-500' : 'text-red-500'}`;
+                statusText.textContent = isConnected ? "Connected" : "Offline";
+                
+                // Update analysis running state
+                isAnalysisRunning = status.analysis_running;
+                
+                // Update blocked IPs only if they've changed
+                updateBlockedIPs(status.blocked_ips);
+                
+                document.getElementById("start-btn").disabled = status.analysis_running;
+                document.getElementById("stop-btn").disabled = !status.analysis_running;
+                document.getElementById("interface").disabled = status.analysis_running;
+            }
+
+            function updateTrafficLogs(logs) {
+                const trafficLogs = document.getElementById("traffic-logs");
+                const logContainer = document.querySelector(".log-container");
+                const wasScrolledToBottom = logContainer.scrollHeight - logContainer.clientHeight <= logContainer.scrollTop + 1;
+                
+                let newPacketsAdded = false;
+                
+                if (logs.length > 0) {
+                    if (trafficLogs.querySelector("td[colspan='8']")) {
+                        trafficLogs.innerHTML = "";
+                    }
+                    
+                    logs.forEach(log => {
+                        // Skip if either source or destination IP is blocked
+                        if (currentBlockedIPs.has(log.src_ip) || currentBlockedIPs.has(log.dst_ip)) {
+                            return;
+                        }
+
+                        // Apply IP filter if set
+                        if (currentIPFilter && !log.src_ip.includes(currentIPFilter) && !log.dst_ip.includes(currentIPFilter)) {
+                            return;
+                        }
+
+                        const packetId = `packet-${log.timestamp}-${log.src_ip}-${log.dst_ip}-${log.src_port}-${log.dst_port}`;
+                        
+                        if (!document.getElementById(packetId)) {
+                            const row = document.createElement("tr");
+                            row.id = packetId;
+                            row.className = "packet-row hover:bg-gray-50";
+                            row.setAttribute('data-timestamp', log.timestamp);
+                            row.setAttribute('data-summary', log.summary || 'Not available');
+                            row.setAttribute('data-features', JSON.stringify(log.features || {}));
+                            
+                            const actionClass = log.action === 'blocked' ? 'text-red-600 font-semibold' : 'text-green-600';
+                            const predictionClass = log.prediction === 'Normal' ? 'text-green-600' : 'text-red-600';
+                            
+                            row.innerHTML = `
+                                <td class="px-4 py-2 text-gray-600">${log.time}</td>
+                                <td class="px-4 py-2 font-medium">${log.src_ip}</td>
+                                <td class="px-4 py-2 font-medium">${log.dst_ip}</td>
+                                <td class="px-4 py-2">${log.protocol}</td>
+                                <td class="px-4 py-2">${log.src_port} -> ${log.dst_port}</td>
+                                <td class="px-4 py-2">${log.size} bytes</td>
+                                <td class="px-4 py-2 ${actionClass}">${log.action}${
+                                    log.prediction === 'Anomaly' && log.action === 'allowed' 
+                                    ? ` <span class="text-xs text-gray-500">(conf: ${(log.confidence * 100).toFixed(1)}%)</span>`
+                                    : ''}</td>
+                                <td class="px-4 py-2 ${predictionClass}">${log.prediction}</td>
+                            `;
+                            
+                            row.addEventListener('click', () => showPacketDetails(log));
+                            
+                            if (trafficLogs.firstChild) {
+                                trafficLogs.insertBefore(row, trafficLogs.firstChild);
+                            } else {
+                                trafficLogs.appendChild(row);
+                            }
+                            
+                            newPacketsAdded = true;
+                        }
+                    });
+                    
+                    // Keep only the last 1000 rows to prevent browser performance issues
+                    while (trafficLogs.children.length > 1000) {
+                        trafficLogs.removeChild(trafficLogs.lastChild);
+                    }
+                    
+                    // Auto-scroll if we were at the bottom and new packets were added
+                    if (wasScrolledToBottom && newPacketsAdded) {
+                        logContainer.scrollTop = 0;  // Scroll to top since we're adding new packets at the top
+                    }
+                }
+            }
+            
+            function showPacketDetails(packet) {
+                const modal = document.getElementById("packetModal");
+                const details = document.getElementById("packetDetails");
+                
+                const actionClass = packet.action === 'blocked' ? 'text-red-600 font-semibold' : 'text-green-600';
+                const predictionClass = packet.prediction === 'Normal' ? 'text-green-600' : 
+                                      packet.prediction === 'Anomaly' ? 'text-red-600' : 'text-gray-600';
+                
+                // Format confidence values with proper checks
+                const formatConfidence = (value) => {
+                    if (value === undefined || value === null) return '0.0';
+                    const numValue = parseFloat(value);
+                    if (isNaN(numValue)) return '0.0';
+                    return (numValue * 100).toFixed(1);
+                };
+
+                // Only show block reason if packet is blocked and is an explicit anomaly
+                const blockReason = packet.action === 'blocked' && packet.prediction === 'Anomaly' ? `
+                    <div class="detail-row">
+                        <span class="detail-label"><i class="fas fa-ban mr-2"></i>Block Reason</span>
+                        <span class="detail-value">Anomaly detected with confidence ${formatConfidence(packet.confidence)}%</span>
+                    </div>
+                ` : '';
+
+                // Only show allow reason if packet is allowed but was an explicit anomaly
+                const allowReason = packet.action === 'allowed' && packet.prediction === 'Anomaly' ? `
+                    <div class="detail-row">
+                        <span class="detail-label"><i class="fas fa-info-circle mr-2"></i>Allow Reason</span>
+                        <span class="detail-value">Below threshold (Confidence: ${formatConfidence(packet.confidence)}%)</span>
+                    </div>
+                ` : '';
+
+                // Only show confidence for explicit anomaly predictions
+                const confidenceRow = packet.prediction === 'Anomaly' ? `
+                    <div class="detail-row">
+                        <span class="detail-label"><i class="fas fa-chart-line mr-2"></i>Confidence</span>
+                        <span class="detail-value">${formatConfidence(packet.confidence)}%</span>
+                    </div>
+                ` : '';
+
+                details.innerHTML = `
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="space-y-4">
+                            <h3 class="text-lg font-semibold">
+                                <i class="fas fa-info-circle mr-2"></i>Basic Information
+                            </h3>
+                            <div class="detail-row">
+                                <span class="detail-label"><i class="far fa-clock mr-2"></i>Timestamp</span>
+                                <span class="detail-value">${packet.time}</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label"><i class="fas fa-upload mr-2"></i>Source IP</span>
+                                <span class="detail-value">${packet.src_ip}</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label"><i class="fas fa-download mr-2"></i>Destination IP</span>
+                                <span class="detail-value">${packet.dst_ip}</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label"><i class="fas fa-exchange-alt mr-2"></i>Protocol</span>
+                                <span class="detail-value">${packet.protocol}</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label"><i class="fasBack to top
+                                <i class="fas fa-sign-out-alt mr-2"></i>Source Port</span>
+                                <span class="detail-value">${packet.src_port}</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label"><i class="fas fa-sign-in-alt mr-2"></i>Destination Port</span>
+                                <span class="detail-value">${packet.dst_port}</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label"><i class="fas fa-database mr-2"></i>Packet Size</span>
+                                <span class="detail-value">${packet.size} bytes</span>
+                            </div>
+                        </div>
+                        
+                        <div class="space-y-4">
+                            <h3 class="text-lg font-semibold">
+                                <i class="fas fa-shield-alt mr-2"></i>Analysis Results
+                            </h3>
+                            <div class="detail-row">
+                                <span class="detail-label"><i class="fas fa-robot mr-2"></i>Prediction</span>
+                                <span class="detail-value ${predictionClass}">${packet.prediction}</span>
+                            </div>
+                            ${confidenceRow}
+                            <div class="detail-row">
+                                <span class="detail-label"><i class="fas fa-shield-alt mr-2"></i>Action</span>
+                                <span class="detail-value ${actionClass}">${packet.action}</span>
+                            </div>
+                            ${blockReason}
+                            ${allowReason}
+                        </div>
+                    </div>
+
+                    <div class="mt-6">
+                        <h3 class="text-lg font-semibold mb-3">
+                            <i class="fas fa-code mr-2"></i>Raw Packet Summary
+                        </h3>
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <code class="text-sm font-mono break-all">${packet.summary}</code>
+                        </div>
+                    </div>
+
+                    <div class="mt-6">
+                        <h3 class="text-lg font-semibold mb-3">
+                            <i class="fas fa-chart-line mr-2"></i>Model Analysis Features
+                        </h3>
+                        <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                            ${packet.features ? 
+                                Object.entries(packet.features)
+                                    .sort(([keyA, valueA], [keyB, valueB]) => Math.abs(parseFloat(valueA) || 0) - Math.abs(parseFloat(valueB) || 0))
+                                    .map(([key, value]) => {
+                                        const numValue = parseFloat(value);
+                                        const isSignificant = !isNaN(numValue) && Math.abs(numValue) > 1.5;
+                                        const isAnomaly = packet.prediction === 'Anomaly';
+                                        const valueClass = isSignificant && isAnomaly ? 'text-red-600 font-semibold' : 
+                                                         isSignificant ? 'text-green-600 font-semibold' : 'text-gray-600';
+                                        const bgClass = isSignificant && isAnomaly ? 'bg-red-50' : 
+                                                      isSignificant ? 'bg-green-50' : 'bg-gray-50';
+                                        return `
+                                            <div class="feature-item p-3 ${bgClass} rounded-lg">
+                                                <div class="text-sm font-medium text-gray-700">${key}</div>
+                                                <div class="text-sm ${valueClass}">
+                                                    ${isNaN(numValue) ? '0.000' : numValue.toFixed(3)}
+                                                </div>
+                                            </div>
+                                        `;
+                                    }).join('')
+                                : '<div class="col-span-3 text-gray-500 italic">No feature data available</div>'
+                            }
+                        </div>
+                    </div>
+                `;
+                
+                modal.style.display = "block";
+                setTimeout(() => modal.classList.add("show"), 10);
+            }
+            
+            // Modal handling
+            const modal = document.getElementById("packetModal");
+            const closeBtn = document.getElementsByClassName("close")[0];
+            
+            closeBtn.onclick = function() {
+                modal.classList.remove("show");
+                setTimeout(() => modal.style.display = "none", 300);
+            }
+            
+            window.onclick = function(event) {
+                if (event.target == modal) {
+                    modal.classList.remove("show");
+                    setTimeout(() => modal.style.display = "none", 300);
+                }
+            }
+            
+            function connect() {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                socket = new WebSocket(`${protocol}//${window.location.host}/ws`);
+                
+                socket.onopen = function(event) {
+                    isConnected = true;
+                    console.log("Connected to server");
+                    lastUpdateTime = 0;
+                    
+                    // Request initial status
+                    socket.send(JSON.stringify({
+                        action: "get_status"
+                    }));
+                    
+                    // Start periodic status updates at a lower frequency
+                    setInterval(() => {
+                        if (isConnected && isAnalysisRunning) {
+                            socket.send(JSON.stringify({
+                                action: "get_status"
+                            }));
+                        }
+                    }, 2000); // Reduced frequency to 2 seconds
+                    
+                    fetch('/interfaces')
+                        .then(response => response.json())
+                        .then(data => {
+                            const select = document.getElementById("interface");
+                            select.innerHTML = '<option value="">Select an interface</option>';
+                            data.interfaces.forEach(iface => {
+                                const option = document.createElement("option");
+                                option.value = iface.name;
+                                option.textContent = iface.name;
+                                select.appendChild(option);
+                            });
+                        });
+                };
+                
+                socket.onmessage = function(event) {
+                    const data = JSON.parse(event.data);
+                    
+                    if (data.status && data.error) {
+                        alert(data.status);
+                    }
+                    
+                    if (data.update === "status" && data.system_status) {
+                        updateSystemStatus(data.system_status);
+                    }
+                    
+                    if (data.update === "logs" && data.logs) {
+                        updateTrafficLogs(data.logs);
+                    }
+                    
+                    // Handle immediate blocked IP updates only if they've changed
+                    if (data.blocked_ips !== undefined) {
+                        const newBlockedIPs = new Set(data.blocked_ips);
+                        if (!setsAreEqual(currentBlockedIPs, newBlockedIPs)) {
+                            updateBlockedIPs(data.blocked_ips);
+                        }
+                    }
+                };
+                
+                socket.onclose = function(event) {
+                    isConnected = false;
+                    console.log("Disconnected from server");
+                    setTimeout(connect, 5000);
+                };
+                
+                socket.onerror = function(error) {
+                    console.error("WebSocket error:", error);
+                };
+            }
+            
+            document.addEventListener("DOMContentLoaded", function() {
+                connect();
+                
+                // Add event listener for clear traffic button
+                document.getElementById("clear-traffic-btn").addEventListener("click", function() {
+                    const trafficLogs = document.getElementById("traffic-logs");
+                    trafficLogs.innerHTML = `
+                        <tr>
+                            <td colspan="8" class="px-4 py-8 text-center text-gray-400 italic">No traffic data available</td>
+                        </tr>
+                    `;
+                    // Reset the last update time to ensure new traffic starts loading
+                    lastUpdateTime = 0;
+                    console.log("Traffic cleared and update time reset");
+                });
+                
+                document.getElementById("start-btn").addEventListener("click", function() {
+                    const interface = document.getElementById("interface").value;
+                    if (!interface) {
+                        alert("Please select a network interface");
+                        return;
+                    }
+                    
+                    if (isConnected) {
+                        socket.send(JSON.stringify({
+                            action: "start_analysis",
+                            interface: interface
+                        }));
+                    }
+                });
+                
+                document.getElementById("stop-btn").addEventListener("click", function() {
+                    if (isConnected) {
+                        socket.send(JSON.stringify({
+                            action: "stop_analysis"
+                        }));
+                    }
+                });
+                
+                document.getElementById("block-btn").addEventListener("click", function() {
+                    const ip = document.getElementById("ip-address").value;
+                    if (!ip) {
+                        alert("Please enter an IP address");
+                        return;
+                    }
+                    
+                    if (isConnected) {
+                        socket.send(JSON.stringify({
+                            action: "block_ip",
+                            ip: ip
+                        }));
+                    }
+                });
+                
+                document.getElementById("unblock-btn").addEventListener("click", function() {
+                    const ip = document.getElementById("ip-address").value;
+                    if (!ip) {
+                        alert("Please enter an IP address");
+                        return;
+                    }
+                    
+                    if (isConnected) {
+                        socket.send(JSON.stringify({
+                            action: "unblock_ip",
+                            ip: ip
+                        }));
+                    }
+                });
+            });
+            
+            // Add these new functions for blocked IP details
+            function showBlockedIPDetails(ip) {
+                const modal = document.getElementById("blockedIPModal");
+                const details = document.getElementById("blockedIPDetails");
+                
+                // Get traffic history for this IP from the logs
+                const ipTraffic = Array.from(document.querySelectorAll('.packet-row'))
+                    .filter(row => row.children[1].textContent === ip || row.children[2].textContent === ip)
+                    .slice(0, 50);
+                
+                // Find the packet that triggered the block (first packet with blocked action)
+                const blockedPacket = ipTraffic.find(row => row.children[6].textContent === 'blocked');
+                const blockedSummary = blockedPacket ? blockedPacket.getAttribute('data-summary') : 'Not available';
+                let modelFeatures = {};
+                
+                try {
+                    if (blockedPacket) {
+                        const featuresStr = blockedPacket.getAttribute('data-features');
+                        console.log('Raw features:', featuresStr);  // Debug log
+                        modelFeatures = JSON.parse(featuresStr || '{}');
+                    }
+                } catch (e) {
+                    console.error('Error parsing features:', e);
+                    modelFeatures = {};
+                }
+                
+                console.log('Processed features:', modelFeatures);  // Debug log
+                
+                details.innerHTML = `
+                    <div class="detail-row">
+                        <span class="detail-label"><i class="fas fa-network-wired mr-2"></i>IP Address</span>
+                        <span class="detail-value font-mono">${ip}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label"><i class="fas fa-shield-alt mr-2"></i>Status</span>
+                        <span class="detail-value text-red-600 font-semibold">Blocked</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label"><i class="fas fa-info-circle mr-2"></i>Block Trigger</span>
+                        <span class="detail-value font-mono text-sm break-all">${blockedSummary}</span>
+                    </div>
+                    <div class="mt-6">
+                        <h3 class="text-lg font-semibold mb-3">
+                            <i class="fas fa-chart-line mr-2"></i>Model Analysis Features
+                        </h3>
+                        <div class="grid grid-cols-2 gap-4">
+                            ${Object.keys(modelFeatures).length > 0 ? 
+                                Object.entries(modelFeatures)
+                                    .sort(([keyA, valueA], [keyB, valueB]) => Math.abs(valueB) - Math.abs(valueA))
+                                    .map(([key, value]) => {
+                                        const numValue = parseFloat(value);
+                                        const isSignificant = Math.abs(numValue) > 1.5;
+                                        // For blocked IPs, we know it's an anomaly
+                                        const valueClass = isSignificant ? 'text-red-600 font-semibold' : 'text-gray-600';
+                                        const bgClass = isSignificant ? 'bg-red-50' : 'bg-gray-50';
+                                        return `
+                                            <div class="feature-item p-3 ${bgClass} rounded-lg">
+                                                <div class="text-sm font-medium text-gray-700">${key}</div>
+                                                <div class="text-sm ${valueClass}">
+                                                    ${typeof value === 'number' ? value.toFixed(3) : value}
+                                                </div>
+                                            </div>
+                                        `;
+                                    }).join('')
+                                : '<div class="col-span-2 text-gray-500 italic">No feature data available</div>'
+                            }
+                        </div>
+                    </div>
+                `;
+                
+                modal.style.display = "block";
+                setTimeout(() => modal.classList.add("show"), 10);
+            }
+            
+            // Add event listener for the blocked IP modal close button
+            document.getElementsByClassName("close-ip-modal")[0].onclick = function() {
+                const modal = document.getElementById("blockedIPModal");
+                modal.classList.remove("show");
+                setTimeout(() => modal.style.display = "none", 300);
+            }
+            
+            // Update window click handler to handle both modals
+            window.onclick = function(event) {
+                if (event.target.id === "packetModal" || event.target.id === "blockedIPModal") {
+                    const modal = event.target;
+                    modal.classList.remove("show");
+                    setTimeout(() => modal.style.display = "none", 300);
+                }
+            }
+
+            // Add these new functions for IP filtering
+            function applyIPFilter() {
+                const filterInput = document.getElementById("ip-filter");
+                currentIPFilter = filterInput.value.trim();
+                
+                // Clear existing traffic logs
+                const trafficLogs = document.getElementById("traffic-logs");
+                trafficLogs.innerHTML = `
+                    <tr>
+                        <td colspan="8" class="px-4 py-8 text-center text-gray-400 italic">No traffic data available</td>
+                    </tr>
+                `;
+                
+                // Reset the last update time to ensure new traffic starts loading
+                lastUpdateTime = 0;
+                
+                // Request new logs with the filter applied
+                if (isConnected) {
+                    socket.send(JSON.stringify({
+                        action: "get_status"
+                    }));
+                }
+            }
+
+            function clearIPFilter() {
+                const filterInput = document.getElementById("ip-filter");
+                filterInput.value = "";
+                currentIPFilter = "";
+                applyIPFilter();
+            }
+
+            document.addEventListener("DOMContentLoaded", function() {
+                connect();
+                
+                // Add event listeners for IP filtering
+                const filterInput = document.getElementById("ip-filter");
+                const clearFilterBtn = document.getElementById("clear-filter");
+                
+                filterInput.addEventListener("input", debounce(applyIPFilter, 300));
+                clearFilterBtn.addEventListener("click", clearIPFilter);
+                
+                // Add debounce function for better performance
+                function debounce(func, wait) {
+                    let timeout;
+                    return function executedFunction(...args) {
+                        const later = () => {
+                            clearTimeout(timeout);
+                            func(...args);
+                        };
+                        clearTimeout(timeout);
+                        timeout = setTimeout(later, wait);
+                    };
+                }
+            });
+        </script>
+    </body>
+</html>

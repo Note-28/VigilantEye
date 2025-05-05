@@ -1,0 +1,7 @@
+fastapi==0.115.2
+  uvicorn==0.32.0
+  scapy==2.6.0
+  tensorflow==2.17.0
+  pandas==2.2.3
+  numpy==1.26.4
+  psutil==6.1.0
