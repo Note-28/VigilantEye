@@ -1,5 +1,5 @@
 # Cybersecurity Dashboard
-![Dashboard UI](Screenshot\ 1.png)
+![Dashboard UI](Screenshot%201.png)
 The Cybersecurity Dashboard is a web-based application for real-time network traffic monitoring and analysis. It integrates with Snort for intrusion detection, uses a Res-CNN model with Reptile++ meta-learning for anomaly detection, and provides a user-friendly interface to visualize traffic, block/unblock IPs, and view packet details. Built with FastAPI, Scapy, and Tailwind CSS, it is designed for Windows environments.
 
 ## Features
