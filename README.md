@@ -201,7 +201,7 @@ pip install -r requirements.txt
 - **Model Training**: Train the Res-CNN model with Reptile++ for your network to ensure accurate anomaly detection.
 - **Port Conflicts**: If port 8000 is in use, update `main.py`:
   ```python
-  uvicorn.run("app:app", host="127.0.0.1", port=8080, reload=False, workers=1)
+  uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=False, workers=1)
   ```
 - **Customization**: Update Snort paths, model paths, or UI styles as needed.
 
